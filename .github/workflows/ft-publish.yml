@@ -1,0 +1,38 @@
+# Frost & Thaw: copy the browser engine built by "Automatic Build" onto the ft-dist branch,
+# so it can be fetched with git (artifact storage isn't reachable from the build machine).
+name: Publish engine for Frost & Thaw
+on:
+  push:
+    branches: [ft-publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the core + frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: mkxp-z_libretro.wasm
+          path: dist/core
+          run-id: 43542154859
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download the Nostalgist.js player (built for KNight-Blade, used as a reference)
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: mkxp-z_libretro_nostalgist_knight-blade-howling-of-kerberos
+          path: dist/nostalgist-reference
+          run-id: 43542154859
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit to ft-dist
+        run: |
+          rm -f dist/nostalgist-reference/*.mkxpz
+          cd dist
+          git init -q -b ft-dist
+          git config user.name "frost-thaw-publish"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Engine from Automatic Build run 43542154859"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" ft-dist
