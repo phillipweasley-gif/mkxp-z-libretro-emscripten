@@ -332,7 +332,7 @@ const fetchWithCache = async (
 // gets past it in well under a second). If it hasn't moved on after a while,
 // reload the page, which starts it again. A few tries, then say so.
 const WATCHDOG_KEY = "frost-thaw boot retries";
-const WATCHDOG_MS = 20000;
+const WATCHDOG_MS = 10000;
 let engineMounted = false;
 let enginePastMount = false;
 function noteEngineLine(line: string) {
@@ -342,7 +342,7 @@ function noteEngineLine(line: string) {
       setTimeout(() => {
         if (enginePastMount) return;
         const tries = parseInt(sessionStorage.getItem(WATCHDOG_KEY) ?? "0");
-        if (tries < 4) {
+        if (tries < 6) {
           sessionStorage.setItem(WATCHDOG_KEY, String(tries + 1));
           console.warn("Engine start stalled; reloading (try " + (tries + 1) + ")");
           location.reload();
