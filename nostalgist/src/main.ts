@@ -327,6 +327,44 @@ const fetchWithCache = async (
   }
 };
 
+// Frost & Thaw: boot watchdog. RetroArch sometimes stalls for good right after
+// mounting OPFS (a start-up race in the threaded web build; a healthy start
+// gets past it in well under a second). If it hasn't moved on after a while,
+// reload the page, which starts it again. A few tries, then say so.
+const WATCHDOG_KEY = "frost-thaw boot retries";
+const WATCHDOG_MS = 20000;
+let engineMounted = false;
+let enginePastMount = false;
+function noteEngineLine(line: string) {
+  if (!engineMounted) {
+    if (line.includes("Mount OPFS")) {
+      engineMounted = true;
+      setTimeout(() => {
+        if (enginePastMount) return;
+        const tries = parseInt(sessionStorage.getItem(WATCHDOG_KEY) ?? "0");
+        if (tries < 4) {
+          sessionStorage.setItem(WATCHDOG_KEY, String(tries + 1));
+          console.warn("Engine start stalled; reloading (try " + (tries + 1) + ")");
+          location.reload();
+        } else {
+          sessionStorage.removeItem(WATCHDOG_KEY);
+          const status = document.getElementById("install-status");
+          if (status !== null) {
+            status.textContent =
+              "The game didn't start. Close this tab and open the page again.";
+          }
+        }
+      }, WATCHDOG_MS);
+    }
+  } else if (
+    !enginePastMount &&
+    (line.includes("=== Build") || line.includes("[libretro"))
+  ) {
+    enginePastMount = true;
+    sessionStorage.removeItem(WATCHDOG_KEY);
+  }
+}
+
 // Frost & Thaw: install (or update) the game into OPFS from its pack manifest
 const GAME_MANIFEST =
   typeof import.meta.env.VITE_GAME_MANIFEST === "string"
@@ -409,6 +447,15 @@ const nostalgist = await Nostalgist.prepare({
           fileContent: rtpBlob,
         },
   emscriptenModule: {
+    // Frost & Thaw: watch the engine's start-up log for the boot watchdog below
+    print: (...args: unknown[]) => {
+      noteEngineLine(args.join(" "));
+      console.info(...args);
+    },
+    printErr: (...args: unknown[]) => {
+      noteEngineLine(args.join(" "));
+      console.error(...args);
+    },
     preRun: [
       (module) => {
         if (opfs !== null) {
