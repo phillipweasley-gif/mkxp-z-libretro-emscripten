@@ -6,6 +6,7 @@ import { toBase64 } from "js-base64";
 import { Nostalgist } from "nostalgist";
 import ProgressBar from "progressbar.js";
 import { Spinner } from "spin.js";
+import { installGame, type Manifest } from "./pak";
 
 const CORE_NAME = "mkxp-z";
 
@@ -313,6 +314,51 @@ const fetchWithCache = async (
   }
 };
 
+// Frost & Thaw: install (or update) the game into OPFS from its pack manifest
+const GAME_MANIFEST =
+  typeof import.meta.env.VITE_GAME_MANIFEST === "string"
+    ? new URL(import.meta.env.VITE_GAME_MANIFEST, location.href).toString()
+    : null;
+let gameManifest: Manifest | null = null;
+if (GAME_MANIFEST !== null) {
+  if (opfs === null) {
+    alert(
+      "This browser can't store the game. Use Safari (iPhone/iPad) or Chrome (Android/computer), not a private window.",
+    );
+    throw "OPFS is required for the pack installer";
+  }
+  const status = document.getElementById("install-status");
+  let counted = 0;
+  try {
+    gameManifest = await installGame(GAME_MANIFEST, "game", (done, total) => {
+      if (counted === 0 && total > 0) {
+        totalBytes += total;
+        counted = total;
+      }
+      currentBytes = done;
+      updateBar();
+      if (total > 0 && progressbarTarget !== null) {
+        spinner.stop();
+        progressbarTarget.style.display = "initial";
+      }
+      if (status !== null && total > 0) {
+        status.textContent =
+          "Downloading the game: " +
+          (done / 1e6).toFixed(0) +
+          " of " +
+          (total / 1e6).toFixed(0) +
+          " MB. This only happens once; keep this page open.";
+      }
+    });
+  } catch (err) {
+    alert(String(err));
+    throw err;
+  }
+  if (status !== null) status.textContent = "";
+  currentBytes = 0;
+  totalBytes = 0;
+}
+
 const [coreJsBlob, coreWasmBlob, gameBlob, rtpBlob] = await Promise.all([
   fetchWithCache(CORE_JS_SIZE, CORE_JS_HASH, CORE_JS_PATH),
   fetchWithCache(CORE_WASM_SIZE, CORE_WASM_HASH, CORE_WASM_PATH),
@@ -416,7 +462,12 @@ if (opfs !== null) {
   }
 
   // Tell RetroArch to load the game from OPFS
-  if (GAME_PATH !== null) {
+  if (gameManifest !== null) {
+    const module = nostalgist.getEmscripten().Module;
+    const args: string[] = module.arguments ?? [];
+    args.push(PERSISTENT_DIRECTORY + "/game/" + gameManifest.launch);
+    module.arguments = args;
+  } else if (GAME_PATH !== null) {
     const module = nostalgist.getEmscripten().Module;
     const args: string[] = module.arguments ?? [];
     args.push(PERSISTENT_DIRECTORY + "/" + GAME_OPFS_PATH);

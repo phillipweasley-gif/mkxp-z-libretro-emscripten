@@ -14,6 +14,12 @@ for (const key of ["CORE_JS", "CORE_WASM", "GAME", "RTP"]) {
     continue;
   }
   const envPath = path.join("public", rawEnvPath);
+  // Frost & Thaw: the engine and game are hosted next to the page, not bundled; skip files that aren't in public/
+  try {
+    await fs.stat(envPath);
+  } catch {
+    continue;
+  }
 
   const size = (await fs.stat(envPath)).size;
   const envSize = parseInt(process.env["VITE_" + key + "_SIZE"] ?? "");
