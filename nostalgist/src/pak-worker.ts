@@ -4,6 +4,13 @@
 // worker-only.
 
 type Req = { id: number; root: string; buf: ArrayBuffer };
+type SyncHandle = {
+  truncate(size: number): void;
+  write(data: Uint8Array, opts: { at: number }): number;
+  flush(): void;
+  close(): void;
+};
+type SyncHandleMaker = { createSyncAccessHandle(): Promise<SyncHandle> };
 
 const dirCache = new Map<string, FileSystemDirectoryHandle>();
 
@@ -54,9 +61,8 @@ function listZip(u8: Uint8Array): Entry[] {
     if (method !== 0) throw new Error("pack entry is compressed: " + name);
     const lnlen = dv.getUint16(local + 26, true);
     const lelen = dv.getUint16(local + 28, true);
-    if (!name.endsWith("/")) {
-      out.push({ name, start: local + 30 + lnlen + lelen, size: csize });
-    }
+    // A name ending in "/" is a folder (kept so empty folders the game expects exist)
+    out.push({ name, start: local + 30 + lnlen + lelen, size: csize });
     p += 46 + nlen + elen + clen;
   }
   return out;
@@ -68,10 +74,15 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     const u8 = new Uint8Array(buf);
     const entries = listZip(u8);
     for (const e of entries) {
+      if (e.name.endsWith("/")) {
+        await dirFor(root + "/" + e.name);
+        continue;
+      }
       const slash = e.name.lastIndexOf("/");
       const dir = await dirFor(root + "/" + (slash >= 0 ? e.name.slice(0, slash) : ""));
       const fh = await dir.getFileHandle(e.name.slice(slash + 1), { create: true });
-      const h = await fh.createSyncAccessHandle();
+      // createSyncAccessHandle is worker-only, so the DOM typings leave it off FileSystemFileHandle
+      const h = await (fh as unknown as SyncHandleMaker).createSyncAccessHandle();
       try {
         h.truncate(0);
         h.write(u8.subarray(e.start, e.start + e.size), { at: 0 });

@@ -244,27 +244,40 @@ const fetchWithCache = async (
 
     // If the blob is not cached, fetch it instead
     if (blob === undefined) {
-      let fetchedBytes = 0;
-
-      const response = await fetch(path).then(
-        fetchProgress({
-          onProgress: (progress) => {
-            currentBytes += progress.transferred - fetchedBytes;
-            fetchedBytes = progress.transferred;
-            updateBar();
-            if (progressbarTarget !== null) {
-              spinner.stop();
-              progressbarTarget.style.display = "initial";
-            }
-          },
-        }),
-      );
-
-      blob = await response.blob();
+      // Frost & Thaw: phones drop connections (and the page reloads once for
+      // cross-origin isolation), so retry a failed download a few times
+      for (let attempt = 0; ; attempt++) {
+        let fetchedBytes = 0;
+        try {
+          const response = await fetch(path).then(
+            fetchProgress({
+              onProgress: (progress) => {
+                currentBytes += progress.transferred - fetchedBytes;
+                fetchedBytes = progress.transferred;
+                updateBar();
+                if (progressbarTarget !== null) {
+                  spinner.stop();
+                  progressbarTarget.style.display = "initial";
+                }
+              },
+            }),
+          );
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          blob = await response.blob();
+          break;
+        } catch (err) {
+          currentBytes -= fetchedBytes;
+          if (attempt >= 5) throw err;
+          await new Promise((r) =>
+            setTimeout(r, 1000 * Math.min(30, 2 ** attempt)),
+          );
+        }
+      }
     } else {
       currentBytes += size;
       updateBar();
     }
+    if (blob === undefined) throw new Error("Couldn't download " + path);
 
     // Store the blob into IndexedDB and OPFS if needed
     if (
